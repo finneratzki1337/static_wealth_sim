@@ -5,10 +5,13 @@ import {
   renderMonteCarloChart,
   renderSummaryCards,
   renderSummaryTable,
+  renderMonteCarloSummaryTable,
+  renderMonteCarloYearlyQuantilesTable,
   renderYearlyTable
 } from "./ui/render.js";
 
 const elements = {
+  toggleTheme: document.getElementById("toggleTheme"),
   startCapital: document.getElementById("startCapital"),
   annualReturnPre: document.getElementById("annualReturnPre"),
   annualReturnPost: document.getElementById("annualReturnPost"),
@@ -30,7 +33,6 @@ const elements = {
   crisisAfterYears: document.getElementById("crisisAfterYears"),
   crisisMaxDrawdown: document.getElementById("crisisMaxDrawdown"),
   recoveryProfile: document.getElementById("recoveryProfile"),
-  showReal: document.getElementById("showReal"),
   runSimulation: document.getElementById("runSimulation"),
   msciDefaults: document.getElementById("msciDefaults"),
   copyLink: document.getElementById("copyLink"),
@@ -43,8 +45,65 @@ const elements = {
   deterministicChart: document.getElementById("deterministicChart"),
   mcChart: document.getElementById("mcChart"),
   mcSection: document.getElementById("mcSection"),
+  mcTableCard: document.getElementById("mcTableCard"),
+  mcSummaryTable: document.getElementById("mcSummaryTable"),
+  mcYearlyTableCard: document.getElementById("mcYearlyTableCard"),
+  mcYearlyTable: document.getElementById("mcYearlyTable"),
   assumptionsContent: document.getElementById("assumptionsContent")
 };
+
+function readThemePreference() {
+  const saved = window.localStorage.getItem("theme");
+  if (saved === "light" || saved === "dark") return saved;
+  return null;
+}
+
+function getSystemTheme() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+function applyTheme(theme) {
+  if (theme === "dark" || theme === "light") {
+    document.documentElement.setAttribute("data-theme", theme);
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+  }
+
+  const effective = theme ?? getSystemTheme();
+  if (elements.toggleTheme) {
+    elements.toggleTheme.textContent = effective === "dark" ? "Light mode" : "Dark mode";
+  }
+}
+
+async function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.left = "-1000px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const ok = document.execCommand("copy");
+  document.body.removeChild(textarea);
+  if (!ok) throw new Error("Copy failed");
+}
+
+function isFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function toPercent(value, fallback) {
+  if (!isFiniteNumber(value)) return fallback;
+  return value * 100;
+}
 
 function parseNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -166,6 +225,17 @@ function renderValidation({ errors, warnings }) {
   elements.validationErrors.hidden = false;
 }
 
+function renderRuntimeError(message, error) {
+  const details = error instanceof Error ? (error.stack || error.message) : String(error);
+  elements.validationErrors.innerHTML =
+    `<strong>Error:</strong> ${message}<br><pre style="white-space:pre-wrap;margin:0.5rem 0 0;">${details}</pre>`;
+  elements.validationErrors.hidden = false;
+}
+
+function isPlotlyReady() {
+  return typeof window !== "undefined" && typeof window.Plotly !== "undefined";
+}
+
 function serializeScenario(values) {
   const params = new URLSearchParams();
   Object.entries(values).forEach(([key, value]) => {
@@ -179,6 +249,10 @@ function readScenarioFromUrl() {
   const params = new URLSearchParams(window.location.search);
   if ([...params.keys()].length === 0) return null;
   const get = (key) => params.get(key);
+  const getBool = (key, fallback) => {
+    if (!params.has(key)) return fallback;
+    return get(key) === "true";
+  };
   return {
     startCapital: get("startCapital") ?? DEFAULTS.startCapital,
     annualReturnPre: get("annualReturnPre") ?? DEFAULTS.annualReturnPre,
@@ -194,10 +268,10 @@ function readScenarioFromUrl() {
     stopInvestingAfterYears: get("stopInvestingAfterYears") ?? DEFAULTS.stopInvestingAfterYears,
     withdrawalMode: get("withdrawalMode") ?? DEFAULTS.withdrawalMode,
     targetNetWithdrawal: get("targetNetWithdrawal") ?? DEFAULTS.targetNetWithdrawal,
-    mcEnabled: get("mcEnabled") === "true" || DEFAULTS.mcEnabled,
+    mcEnabled: getBool("mcEnabled", DEFAULTS.mcEnabled),
     mcRuns: get("mcRuns") ?? DEFAULTS.mcRuns,
     sigmaAnnual: get("sigmaAnnual") ?? DEFAULTS.sigmaAnnual,
-    crisisEnabled: get("crisisEnabled") === "true" || DEFAULTS.crisisEnabled,
+    crisisEnabled: getBool("crisisEnabled", DEFAULTS.crisisEnabled),
     crisisAfterYears: get("crisisAfterYears") ?? DEFAULTS.crisisAfterYears,
     crisisMaxDrawdown: get("crisisMaxDrawdown") ?? DEFAULTS.crisisMaxDrawdown,
     recoveryProfile: get("recoveryProfile") ?? DEFAULTS.recoveryProfile
@@ -241,46 +315,69 @@ function renderAssumptions() {
 let debounceTimer = null;
 
 function runSimulation() {
-  const scenario = getScenarioFromInputs();
-  const validation = validateScenario(scenario);
-  renderValidation(validation);
-  if (validation.errors.length > 0) return;
+  try {
+    const scenario = getScenarioFromInputs();
+    const validation = validateScenario(scenario);
+    renderValidation(validation);
+    if (validation.errors.length > 0) return;
 
-  updateUrl({
-    startCapital: elements.startCapital.value,
-    annualReturnPre: elements.annualReturnPre.value,
-    annualReturnPost: elements.annualReturnPost.value,
-    inflationAnnual: elements.inflationAnnual.value,
-    monthlySavings: elements.monthlySavings.value,
-    currentAge: elements.currentAge.value,
-    retirementAge: elements.retirementAge.value,
-    startGainPct: elements.startGainPct.value,
-    taxRate: elements.taxRate.value,
-    savingsIncreaseAnnualPct: elements.savingsIncreaseAnnualPct.value,
-    savingsCap: elements.savingsCap.value,
-    stopInvestingAfterYears: elements.stopInvestingAfterYears.value,
-    withdrawalMode: elements.withdrawalMode.value,
-    targetNetWithdrawal: elements.targetNetWithdrawal.value,
-    mcEnabled: elements.mcEnabled.checked,
-    mcRuns: elements.mcRuns.value,
-    sigmaAnnual: elements.sigmaAnnual.value,
-    crisisEnabled: elements.crisisEnabled.checked,
-    crisisAfterYears: elements.crisisAfterYears.value,
-    crisisMaxDrawdown: elements.crisisMaxDrawdown.value,
-    recoveryProfile: elements.recoveryProfile.value
-  });
+    updateUrl({
+      startCapital: elements.startCapital.value,
+      annualReturnPre: elements.annualReturnPre.value,
+      annualReturnPost: elements.annualReturnPost.value,
+      inflationAnnual: elements.inflationAnnual.value,
+      monthlySavings: elements.monthlySavings.value,
+      currentAge: elements.currentAge.value,
+      retirementAge: elements.retirementAge.value,
+      startGainPct: elements.startGainPct.value,
+      taxRate: elements.taxRate.value,
+      savingsIncreaseAnnualPct: elements.savingsIncreaseAnnualPct.value,
+      savingsCap: elements.savingsCap.value,
+      stopInvestingAfterYears: elements.stopInvestingAfterYears.value,
+      withdrawalMode: elements.withdrawalMode.value,
+      targetNetWithdrawal: elements.targetNetWithdrawal.value,
+      mcEnabled: elements.mcEnabled.checked,
+      mcRuns: elements.mcRuns.value,
+      sigmaAnnual: elements.sigmaAnnual.value,
+      crisisEnabled: elements.crisisEnabled.checked,
+      crisisAfterYears: elements.crisisAfterYears.value,
+      crisisMaxDrawdown: elements.crisisMaxDrawdown.value,
+      recoveryProfile: elements.recoveryProfile.value
+    });
 
-  const results = simulateScenario(scenario);
-  const showReal = elements.showReal.checked;
+    if (!isPlotlyReady()) {
+      renderRuntimeError(
+        "Charts are unavailable because Plotly hasn't loaded yet. If you're offline or blocked from cdn.plot.ly, the app can still compute tables.",
+        new Error("Plotly is undefined")
+      );
+    }
 
-  renderSummaryCards(elements.summaryCards, results.deterministic.summary, results.monteCarlo?.summaryQuantiles, showReal);
-  renderSummaryTable(elements.summaryTable, results.deterministic.summary);
-  renderYearlyTable(elements.yearlyTable, results.deterministic.yearly);
-  renderDeterministicChart(elements.deterministicChart, results.deterministic.timeline, showReal);
+    const results = simulateScenario(scenario);
 
-  elements.mcSection.style.display = results.monteCarlo ? "block" : "none";
-  if (results.monteCarlo) {
-    renderMonteCarloChart(elements.mcChart, results.monteCarlo.quantilesTimeline, results.deterministic.timeline, showReal);
+    renderSummaryCards(elements.summaryCards, results.deterministic.summary, results.monteCarlo?.summaryQuantiles);
+    renderSummaryTable(elements.summaryTable, results.deterministic.summary);
+    renderYearlyTable(elements.yearlyTable, results.deterministic.yearly);
+    renderDeterministicChart(elements.deterministicChart, results.deterministic.timeline, false);
+
+    elements.mcSection.style.display = results.monteCarlo ? "block" : "none";
+    if (elements.mcTableCard) {
+      elements.mcTableCard.style.display = results.monteCarlo ? "block" : "none";
+    }
+    if (elements.mcYearlyTableCard) {
+      elements.mcYearlyTableCard.style.display = results.monteCarlo ? "block" : "none";
+    }
+    if (results.monteCarlo) {
+      renderMonteCarloChart(elements.mcChart, results.monteCarlo.quantilesTimeline, results.deterministic.timeline, false);
+      if (elements.mcSummaryTable) {
+        renderMonteCarloSummaryTable(elements.mcSummaryTable, results.monteCarlo.summaryQuantiles);
+      }
+      if (elements.mcYearlyTable) {
+        renderMonteCarloYearlyQuantilesTable(elements.mcYearlyTable, results.monteCarlo.yearlyQuantiles);
+      }
+    }
+  } catch (error) {
+    console.error(error);
+    renderRuntimeError("Simulation failed to run.", error);
   }
 }
 
@@ -301,16 +398,22 @@ function initEventHandlers() {
   });
 
   elements.runSimulation.addEventListener("click", runSimulation);
-  elements.showReal.addEventListener("change", runSimulation);
 
   elements.copyLink.addEventListener("click", () => {
     const url = window.location.href;
-    navigator.clipboard.writeText(url).then(() => {
-      elements.copyLink.textContent = "Link copied!";
-      setTimeout(() => {
-        elements.copyLink.textContent = "Copy Scenario Link";
-      }, 1200);
-    });
+    copyToClipboard(url)
+      .then(() => {
+        elements.copyLink.textContent = "Link copied!";
+        setTimeout(() => {
+          elements.copyLink.textContent = "Copy Scenario Link";
+        }, 1200);
+      })
+      .catch(() => {
+        elements.copyLink.textContent = "Copy failed";
+        setTimeout(() => {
+          elements.copyLink.textContent = "Copy Scenario Link";
+        }, 1200);
+      });
   });
 
   elements.exportJson.addEventListener("click", () => {
@@ -326,26 +429,34 @@ function initEventHandlers() {
         const parsed = JSON.parse(reader.result);
         applyScenarioToInputs({
           ...DEFAULTS,
-          startCapital: parsed.startCapital ?? DEFAULTS.startCapital,
-          annualReturnPre: parsed.annualReturnPre * 100 ?? DEFAULTS.annualReturnPre,
-          annualReturnPost: parsed.annualReturnPost ? parsed.annualReturnPost * 100 : "",
-          inflationAnnual: parsed.inflationAnnual * 100 ?? DEFAULTS.inflationAnnual,
-          monthlySavings: parsed.monthlySavings ?? DEFAULTS.monthlySavings,
-          currentAge: parsed.currentAge ?? DEFAULTS.currentAge,
-          retirementAge: parsed.retirementAge ?? DEFAULTS.retirementAge,
-          startGainPct: parsed.startUnrealizedGainPct ?? DEFAULTS.startGainPct,
-          taxRate: parsed.taxRate * 100 ?? DEFAULTS.taxRate,
-          savingsIncreaseAnnualPct: parsed.savingsIncreaseAnnualPct ?? DEFAULTS.savingsIncreaseAnnualPct,
-          savingsCap: parsed.savingsCap ?? DEFAULTS.savingsCap,
-          stopInvestingAfterYears: parsed.stopInvestingAfterYears ?? DEFAULTS.stopInvestingAfterYears,
+          startCapital: isFiniteNumber(parsed.startCapital) ? parsed.startCapital : DEFAULTS.startCapital,
+          annualReturnPre: toPercent(parsed.annualReturnPre, DEFAULTS.annualReturnPre),
+          annualReturnPost: isFiniteNumber(parsed.annualReturnPost) ? parsed.annualReturnPost * 100 : "",
+          inflationAnnual: toPercent(parsed.inflationAnnual, DEFAULTS.inflationAnnual),
+          monthlySavings: isFiniteNumber(parsed.monthlySavings) ? parsed.monthlySavings : DEFAULTS.monthlySavings,
+          currentAge: isFiniteNumber(parsed.currentAge) ? parsed.currentAge : DEFAULTS.currentAge,
+          retirementAge: isFiniteNumber(parsed.retirementAge) ? parsed.retirementAge : DEFAULTS.retirementAge,
+          startGainPct: isFiniteNumber(parsed.startUnrealizedGainPct) ? parsed.startUnrealizedGainPct : DEFAULTS.startGainPct,
+          taxRate: toPercent(parsed.taxRate, DEFAULTS.taxRate),
+          savingsIncreaseAnnualPct: isFiniteNumber(parsed.savingsIncreaseAnnualPct)
+            ? parsed.savingsIncreaseAnnualPct
+            : DEFAULTS.savingsIncreaseAnnualPct,
+          savingsCap: isFiniteNumber(parsed.savingsCap) ? parsed.savingsCap : DEFAULTS.savingsCap,
+          stopInvestingAfterYears: isFiniteNumber(parsed.stopInvestingAfterYears)
+            ? parsed.stopInvestingAfterYears
+            : DEFAULTS.stopInvestingAfterYears,
           withdrawalMode: parsed.withdrawalMode ?? DEFAULTS.withdrawalMode,
-          targetNetWithdrawal: parsed.targetNetWithdrawal ?? DEFAULTS.targetNetWithdrawal,
-          mcEnabled: parsed.monteCarlo?.enabled ?? DEFAULTS.mcEnabled,
-          mcRuns: parsed.monteCarlo?.runs ?? DEFAULTS.mcRuns,
-          sigmaAnnual: parsed.monteCarlo?.sigmaAnnual * 100 ?? DEFAULTS.sigmaAnnual,
-          crisisEnabled: parsed.crisis?.enabled ?? DEFAULTS.crisisEnabled,
-          crisisAfterYears: parsed.crisis?.afterYears ?? DEFAULTS.crisisAfterYears,
-          crisisMaxDrawdown: parsed.crisis?.maxDrawdownPct ?? DEFAULTS.crisisMaxDrawdown,
+          targetNetWithdrawal: isFiniteNumber(parsed.targetNetWithdrawal)
+            ? parsed.targetNetWithdrawal
+            : DEFAULTS.targetNetWithdrawal,
+          mcEnabled: Boolean(parsed.monteCarlo?.enabled ?? DEFAULTS.mcEnabled),
+          mcRuns: isFiniteNumber(parsed.monteCarlo?.runs) ? parsed.monteCarlo.runs : DEFAULTS.mcRuns,
+          sigmaAnnual: toPercent(parsed.monteCarlo?.sigmaAnnual, DEFAULTS.sigmaAnnual),
+          crisisEnabled: Boolean(parsed.crisis?.enabled ?? DEFAULTS.crisisEnabled),
+          crisisAfterYears: isFiniteNumber(parsed.crisis?.afterYears) ? parsed.crisis.afterYears : DEFAULTS.crisisAfterYears,
+          crisisMaxDrawdown: isFiniteNumber(parsed.crisis?.maxDrawdownPct)
+            ? parsed.crisis.maxDrawdownPct
+            : DEFAULTS.crisisMaxDrawdown,
           recoveryProfile: parsed.crisis?.recoveryProfile ?? DEFAULTS.recoveryProfile
         });
         runSimulation();
@@ -362,9 +473,20 @@ function initEventHandlers() {
     elements.annualReturnPre.value = 8.5;
     runSimulation();
   });
+
+  if (elements.toggleTheme) {
+    elements.toggleTheme.addEventListener("click", () => {
+      const effective = document.documentElement.getAttribute("data-theme") ?? readThemePreference() ?? getSystemTheme();
+      const next = effective === "dark" ? "light" : "dark";
+      window.localStorage.setItem("theme", next);
+      applyTheme(next);
+      runSimulation();
+    });
+  }
 }
 
 function init() {
+  applyTheme(readThemePreference() ?? "dark");
   const urlScenario = readScenarioFromUrl();
   if (urlScenario) {
     applyScenarioToInputs({ ...DEFAULTS, ...urlScenario });
@@ -373,7 +495,20 @@ function init() {
   }
   renderAssumptions();
   initEventHandlers();
-  runSimulation();
+
+  // Plotly is loaded via a separate deferred script tag. In some browsers/network setups
+  // it may not be ready by the time modules execute.
+  let attempts = 0;
+  const maxAttempts = 80;
+  const tick = () => {
+    attempts += 1;
+    if (isPlotlyReady() || attempts >= maxAttempts) {
+      runSimulation();
+      return;
+    }
+    window.setTimeout(tick, 50);
+  };
+  tick();
 }
 
 init();

@@ -20,7 +20,7 @@ export const DEFAULTS = {
   crisisAfterYears: 20,
   crisisMaxDrawdown: 40,
   recoveryProfile: "typical",
-  maxAge: 100
+  maxAge: 95
 };
 
 export const SOURCES = {

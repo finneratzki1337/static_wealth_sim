@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run JS tests",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"src/tests/run-tests.mjs"
+			],
+			"isBackground": false
+		}
+	]
+}

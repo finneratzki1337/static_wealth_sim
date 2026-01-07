@@ -44,19 +44,28 @@ function getMonthlyReturn({
   useMonteCarlo
 }) {
   const baseMonthly = annualToMonthlyReturn(annualReturn);
-  if (!useMonteCarlo) {
-    if (!recoveryEntry) return baseMonthly;
-    const premiumMonthly = annualToMonthlyReturn(recoveryEntry.premiumAnnual);
-    return baseMonthly + premiumMonthly * recoveryEntry.decay;
-  }
-
-  const sigmaMonthly = sigmaAnnual / Math.sqrt(12);
   const expectedMonthly = recoveryEntry
     ? baseMonthly + annualToMonthlyReturn(recoveryEntry.premiumAnnual) * recoveryEntry.decay
     : baseMonthly;
+
+  if (!useMonteCarlo) {
+    return expectedMonthly;
+  }
+
+  const sigmaMonthly = sigmaAnnual / Math.sqrt(12);
   const muMonthly = Math.log(1 + expectedMonthly);
   const shock = randomNormal() * sigmaMonthly;
   return Math.exp(muMonthly + shock) - 1;
+}
+
+function getExpectedMonthlyReturn({
+  annualReturn,
+  recoveryEntry
+}) {
+  const baseMonthly = annualToMonthlyReturn(annualReturn);
+  if (!recoveryEntry) return baseMonthly;
+  const premiumMonthly = annualToMonthlyReturn(recoveryEntry.premiumAnnual);
+  return baseMonthly + premiumMonthly * recoveryEntry.decay;
 }
 
 function simulatePath({
@@ -78,9 +87,11 @@ function simulatePath({
   timeline.push({
     tMonth: 0,
     ageYearsDecimal: params.currentAge,
+    cpi: cpiTimeline[0],
     valueNominal: value,
     valueReal: value / cpiTimeline[0],
     basisNominal: basis,
+    basisReal: basis / cpiTimeline[0],
     contribution: 0,
     withdrawGross: 0,
     withdrawNet: 0,
@@ -106,7 +117,8 @@ function simulatePath({
     const stopMonth = params.stopInvestingAfterYears
       ? Math.round(params.stopInvestingAfterYears * 12)
       : null;
-    const contribution = !depleted && (!stopMonth || t <= stopMonth)
+    const isRetiredAtStartOfMonth = age >= params.retirementAge;
+    const contribution = !depleted && !isRetiredAtStartOfMonth && (!stopMonth || t <= stopMonth)
       ? monthlySavings
       : 0;
 
@@ -118,6 +130,10 @@ function simulatePath({
       ? params.annualReturnPost ?? params.annualReturnPre
       : params.annualReturnPre;
     const recoveryEntry = recoveryMap.get(t);
+    const expectedMonthlyReturn = getExpectedMonthlyReturn({
+      annualReturn,
+      recoveryEntry
+    });
     const baseReturn = getMonthlyReturn({
       annualReturn,
       recoveryEntry,
@@ -140,8 +156,10 @@ function simulatePath({
     let taxPaid = 0;
     if (!depleted && isRetired && params.withdrawalMode !== "off") {
       if (params.withdrawalMode === "interestOnly") {
-        const growth = Math.max(value - valueBeforeReturn, 0);
-        withdrawGross = growth;
+        // Withdraw the expected interest based on the return assumption.
+        // Using realized month-to-month gains causes volatility drag and can deplete quickly in Monte Carlo.
+        const expectedInterestGross = Math.max(valueBeforeReturn * expectedMonthlyReturn, 0);
+        withdrawGross = Math.min(expectedInterestGross, value);
       } else {
         const gainRatio = computeGainRatio(value, basis);
         const denom = Math.max(1 - params.taxRate * gainRatio, EPS);
@@ -171,9 +189,11 @@ function simulatePath({
     timeline.push({
       tMonth: t,
       ageYearsDecimal: age,
+      cpi: cpiTimeline[t],
       valueNominal: value,
       valueReal: value / cpiTimeline[t],
       basisNominal: basis,
+      basisReal: basis / cpiTimeline[t],
       contribution,
       withdrawGross,
       withdrawNet,
@@ -198,6 +218,8 @@ function buildSummary({
   const annualReturn = params.annualReturnPost ?? params.annualReturnPre;
   const foreverGrossAnnual = retirementPoint.valueNominal * annualReturn;
   const foreverNetAnnual = foreverGrossAnnual * (1 - params.taxRate * gainRatio);
+  const foreverGrossAnnualReal = retirementPoint.valueReal * annualReturn;
+  const foreverNetAnnualReal = foreverGrossAnnualReal * (1 - params.taxRate * gainRatio);
   const depletionPoint = timeline.find((row) => row.isDepleted);
 
   return {
@@ -206,8 +228,12 @@ function buildSummary({
     retirementValueReal: retirementPoint.valueReal,
     foreverGrossAnnual,
     foreverNetAnnual,
+    foreverGrossAnnualReal,
+    foreverNetAnnualReal,
     foreverGrossMonthly: foreverGrossAnnual / 12,
     foreverNetMonthly: foreverNetAnnual / 12,
+    foreverGrossMonthlyReal: foreverGrossAnnualReal / 12,
+    foreverNetMonthlyReal: foreverNetAnnualReal / 12,
     depletionAge: depletionPoint ? depletionPoint.ageYearsDecimal : null,
     endingValueNominal: timeline[timeline.length - 1].valueNominal,
     endingValueReal: timeline[timeline.length - 1].valueReal
@@ -223,6 +249,8 @@ function buildYearlyTable(timeline) {
     const withdrawGross = yearSlice.reduce((sum, row) => sum + row.withdrawGross, 0);
     const withdrawNet = yearSlice.reduce((sum, row) => sum + row.withdrawNet, 0);
     const taxPaid = yearSlice.reduce((sum, row) => sum + row.taxPaid, 0);
+    const withdrawGrossReal = yearSlice.reduce((sum, row) => sum + row.withdrawGross / (row.cpi || 1), 0);
+    const withdrawNetReal = yearSlice.reduce((sum, row) => sum + row.withdrawNet / (row.cpi || 1), 0);
     yearly.push({
       age: end.ageYearsDecimal.toFixed(1),
       valueNominal: end.valueNominal,
@@ -230,6 +258,8 @@ function buildYearlyTable(timeline) {
       contribution,
       withdrawGross,
       withdrawNet,
+      withdrawGrossReal,
+      withdrawNetReal,
       taxPaid,
       returnApplied: end.returnApplied
     });
@@ -277,6 +307,13 @@ export function simulateScenario(params) {
   if (params.monteCarlo.enabled) {
     const runs = params.monteCarlo.runs;
     const valuesMatrix = [];
+    const basisMatrix = [];
+    const yearlyEndValueNominalMatrix = [];
+    const yearlyEndValueRealMatrix = [];
+    const yearlyWithdrawNetMatrix = [];
+    const yearlyWithdrawNetRealMatrix = [];
+    const yearlyTaxPaidMatrix = [];
+    let yearlyAges = null;
     for (let r = 0; r < runs; r += 1) {
       const path = simulatePath({
         params,
@@ -287,15 +324,33 @@ export function simulateScenario(params) {
         sigmaAnnual: params.monteCarlo.sigmaAnnual
       });
       valuesMatrix.push(path.map((row) => row.valueNominal));
+      basisMatrix.push(path.map((row) => row.basisNominal));
+
+      const yearly = buildYearlyTable(path);
+      if (!yearlyAges) {
+        yearlyAges = yearly.map((row) => row.age);
+      }
+      yearlyEndValueNominalMatrix.push(yearly.map((row) => row.valueNominal));
+      yearlyEndValueRealMatrix.push(yearly.map((row) => row.valueReal));
+      yearlyWithdrawNetMatrix.push(yearly.map((row) => row.withdrawNet));
+      yearlyWithdrawNetRealMatrix.push(yearly.map((row) => row.withdrawNetReal));
+      yearlyTaxPaidMatrix.push(yearly.map((row) => row.taxPaid));
     }
 
     const quantilesTimeline = computeQuantiles(valuesMatrix, [0.1, 0.5, 0.9]);
+    const basisQuantilesTimeline = computeQuantiles(basisMatrix, [0.1, 0.5, 0.9]);
     const quantilesWithReal = quantilesTimeline.map((row, index) => ({
       nominal: row,
       real: {
         0.1: row[0.1] / cpiTimeline[index],
         0.5: row[0.5] / cpiTimeline[index],
         0.9: row[0.9] / cpiTimeline[index]
+      },
+      basisNominal: basisQuantilesTimeline[index],
+      basisReal: {
+        0.1: basisQuantilesTimeline[index][0.1] / cpiTimeline[index],
+        0.5: basisQuantilesTimeline[index][0.5] / cpiTimeline[index],
+        0.9: basisQuantilesTimeline[index][0.9] / cpiTimeline[index]
       }
     }));
 
@@ -304,12 +359,27 @@ export function simulateScenario(params) {
     );
     const retirementQuantiles = quantilesWithReal[Math.max(retirementIndex, 0)];
 
+    const yearlyEndValueNominalQuantiles = computeQuantiles(yearlyEndValueNominalMatrix, [0.1, 0.5, 0.9]);
+    const yearlyEndValueRealQuantiles = computeQuantiles(yearlyEndValueRealMatrix, [0.1, 0.5, 0.9]);
+    const yearlyWithdrawNetQuantiles = computeQuantiles(yearlyWithdrawNetMatrix, [0.1, 0.5, 0.9]);
+    const yearlyWithdrawNetRealQuantiles = computeQuantiles(yearlyWithdrawNetRealMatrix, [0.1, 0.5, 0.9]);
+    const yearlyTaxPaidQuantiles = computeQuantiles(yearlyTaxPaidMatrix, [0.1, 0.5, 0.9]);
+    const yearlyQuantiles = (yearlyAges ?? []).map((age, index) => ({
+      age,
+      endValueNominal: yearlyEndValueNominalQuantiles[index],
+      endValueReal: yearlyEndValueRealQuantiles[index],
+      withdrawalsNetNominal: yearlyWithdrawNetQuantiles[index],
+      withdrawalsNetReal: yearlyWithdrawNetRealQuantiles[index],
+      taxPaidNominal: yearlyTaxPaidQuantiles[index]
+    }));
+
     monteCarlo = {
       quantilesTimeline: quantilesWithReal,
       summaryQuantiles: {
         retirementNominal: retirementQuantiles.nominal,
         retirementReal: retirementQuantiles.real
-      }
+      },
+      yearlyQuantiles
     };
   }
 
