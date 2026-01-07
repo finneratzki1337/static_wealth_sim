@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Capital Development Simulator</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
+  <script type="module" src="src/main.js" defer></script>
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>Capital Development Simulator</h1>
+      <p class="subtitle">Scenario tool for long-term capital growth, withdrawals, and stress testing.</p>
+    </div>
+    <div class="header-actions">
+      <button id="msciDefaults" class="ghost">Use MSCI World-like defaults</button>
+      <button id="copyLink" class="ghost">Copy Scenario Link</button>
+      <button id="exportJson" class="ghost">Export JSON</button>
+      <label class="ghost file-upload">
+        Import JSON
+        <input id="importJson" type="file" accept="application/json" />
+      </label>
+    </div>
+  </header>
+
+  <main class="app-grid">
+    <section class="panel inputs">
+      <h2>Inputs</h2>
+      <div id="validationErrors" class="alert" hidden></div>
+
+      <div class="field-grid">
+        <label>
+          Starting capital
+          <input id="startCapital" type="number" min="0" step="100" />
+        </label>
+        <label>
+          Assumed annual return (nominal %)
+          <input id="annualReturnPre" type="number" step="0.1" />
+        </label>
+        <label>
+          Inflation (annual %)
+          <input id="inflationAnnual" type="number" step="0.1" />
+        </label>
+        <label>
+          Monthly savings rate
+          <input id="monthlySavings" type="number" min="0" step="50" />
+        </label>
+        <label>
+          Current age (years)
+          <input id="currentAge" type="number" min="0" step="1" />
+        </label>
+        <label>
+          Desired retirement age
+          <input id="retirementAge" type="number" min="0" step="1" />
+        </label>
+        <label>
+          % of starting capital unrealized gain
+          <input id="startGainPct" type="number" min="0" max="100" step="1" />
+        </label>
+        <label>
+          Flat tax on gain (% of gains)
+          <input id="taxRate" type="number" min="0" max="100" step="0.1" />
+        </label>
+        <label>
+          Annual return after retirement (optional %)
+          <input id="annualReturnPost" type="number" step="0.1" placeholder="same as pre-retirement" />
+        </label>
+      </div>
+
+      <details open>
+        <summary>Advanced savings</summary>
+        <div class="field-grid">
+          <label>
+            % yearly increase of savings rate
+            <input id="savingsIncreaseAnnualPct" type="number" step="0.1" />
+          </label>
+          <label>
+            Maximum savings rate cap (optional)
+            <input id="savingsCap" type="number" min="0" step="50" />
+          </label>
+          <label>
+            Stop investing after X years (optional)
+            <input id="stopInvestingAfterYears" type="number" min="0" step="1" />
+          </label>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Retirement withdrawals</summary>
+        <div class="field-grid">
+          <label>
+            Withdrawal mode
+            <select id="withdrawalMode">
+              <option value="off">Off</option>
+              <option value="targetNet">Target net monthly payout</option>
+              <option value="interestOnly">Interest-only (forever payout)</option>
+            </select>
+          </label>
+          <label>
+            Target net monthly payout
+            <input id="targetNetWithdrawal" type="number" min="0" step="50" />
+          </label>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Monte Carlo</summary>
+        <div class="field-grid">
+          <label class="toggle">
+            <input id="mcEnabled" type="checkbox" />
+            Run Monte Carlo
+          </label>
+          <label>
+            Number of runs (50–500)
+            <input id="mcRuns" type="number" min="50" max="500" step="10" />
+          </label>
+          <label>
+            Annual volatility σ (%)
+            <input id="sigmaAnnual" type="number" min="0" step="0.1" />
+          </label>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Crisis drawdown + recovery</summary>
+        <div class="field-grid">
+          <label class="toggle">
+            <input id="crisisEnabled" type="checkbox" />
+            Simulate crisis drawdown
+          </label>
+          <label>
+            Crisis after N years
+            <input id="crisisAfterYears" type="number" min="0" step="1" />
+          </label>
+          <label>
+            Max drawdown in crisis year (%)
+            <input id="crisisMaxDrawdown" type="number" min="0" max="100" step="1" />
+          </label>
+          <label>
+            Recovery profile
+            <select id="recoveryProfile">
+              <option value="off">Off</option>
+              <option value="fast">Fast (2 years)</option>
+              <option value="typical">Typical (3.5 years)</option>
+              <option value="gfc">GFC-like (4 years)</option>
+              <option value="lostDecade">Dotcom / Lost-decade-like (10+ years)</option>
+            </select>
+          </label>
+        </div>
+      </details>
+
+      <button id="runSimulation" class="primary">Run Simulation</button>
+      <p class="note">Changes auto-run with a short delay when possible.</p>
+    </section>
+
+    <section class="panel outputs">
+      <h2>Outputs</h2>
+      <div class="output-toggle">
+        <label class="toggle">
+          <input id="showReal" type="checkbox" />
+          Show real (inflation-adjusted) values
+        </label>
+      </div>
+
+      <div class="summary-grid" id="summaryCards"></div>
+
+      <div class="chart-card">
+        <h3>Deterministic projection</h3>
+        <div id="deterministicChart" class="chart"></div>
+      </div>
+
+      <div class="chart-card" id="mcSection">
+        <h3>Monte Carlo projection</h3>
+        <div id="mcChart" class="chart"></div>
+      </div>
+
+      <div class="table-card">
+        <h3>Summary table</h3>
+        <div id="summaryTable"></div>
+      </div>
+
+      <div class="table-card">
+        <h3>Year-by-year table</h3>
+        <div class="table-scroll" id="yearlyTable"></div>
+      </div>
+    </section>
+  </main>
+
+  <section class="panel assumptions">
+    <details>
+      <summary>Assumptions & Sources</summary>
+      <div id="assumptionsContent"></div>
+    </details>
+  </section>
+
+  <footer>
+    <p>Educational use only. Not tax, legal, or investment advice.</p>
+  </footer>
+</body>
+</html>
