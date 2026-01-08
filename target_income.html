@@ -3,24 +3,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Capital Development Simulator</title>
+  <title>Target Income Calculator</title>
   <link rel="icon" href="assets/timo_logo.png" />
   <link rel="apple-touch-icon" href="assets/timo_logo.png" />
   <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
-  <script src="bundle.js" defer></script>
+  <script src="target_bundle.js" defer></script>
 </head>
 <body>
   <header class="app-header">
     <div class="brand">
       <img class="brand-logo" src="assets/timo_logo.png" alt="Timo" />
       <div>
-        <h1>Capital Development Simulator</h1>
-      <p class="subtitle">Scenario tool for long-term capital growth, withdrawals, and stress testing.</p>
+        <h1>Target Income Calculator</h1>
+        <p class="subtitle">Find the monthly savings needed to fund a target retirement income.</p>
       </div>
     </div>
     <div class="header-actions">
-      <a class="ghost nav-link" href="target_income.html">Target Income Calculator</a>
+      <a class="ghost nav-link" href="index.html">Capital Development Simulator</a>
       <button id="toggleTheme" class="ghost" type="button">Dark mode</button>
       <button id="msciDefaults" class="ghost">Use MSCI World-like defaults</button>
       <button id="copyLink" class="ghost">Copy Scenario Link</button>
@@ -32,11 +32,35 @@
     </div>
   </header>
 
-
   <main class="app-grid">
     <section class="panel inputs">
       <h2>Inputs</h2>
       <div id="validationErrors" class="alert" hidden></div>
+
+      <div class="field-grid">
+        <label>
+          Target net monthly income
+          <input id="targetNetMonthly" type="number" min="0" step="50" />
+        </label>
+        <label>
+          Target income mode
+          <select id="targetMode">
+            <option value="nominal">Nominal (future euros)</option>
+            <option value="real">Real (today's euros)</option>
+          </select>
+        </label>
+        <label>
+          Payout mode
+          <select id="payoutMode">
+            <option value="forever">Forever (interest-only)</option>
+            <option value="untilAge">Until age</option>
+          </select>
+        </label>
+        <label>
+          End age (finite horizon)
+          <input id="endAge" type="number" min="0" step="1" />
+        </label>
+      </div>
 
       <div class="field-grid">
         <label>
@@ -52,7 +76,7 @@
           <input id="inflationAnnual" type="number" step="0.1" />
         </label>
         <label>
-          Monthly savings rate
+          Monthly savings rate (initial)
           <input id="monthlySavings" type="number" min="0" step="50" />
         </label>
         <label>
@@ -91,24 +115,6 @@
           <label>
             Stop investing after X years (optional)
             <input id="stopInvestingAfterYears" type="number" min="0" step="1" />
-          </label>
-        </div>
-      </details>
-
-      <details open>
-        <summary>Retirement withdrawals</summary>
-        <div class="field-grid">
-          <label>
-            Withdrawal mode
-            <select id="withdrawalMode">
-              <option value="off">Off</option>
-              <option value="targetNet">Target net monthly payout</option>
-              <option value="interestOnly">Interest-only (forever payout)</option>
-            </select>
-          </label>
-          <label>
-            Target net monthly payout
-            <input id="targetNetWithdrawal" type="number" min="0" step="50" />
           </label>
         </div>
       </details>
@@ -159,12 +165,15 @@
         </div>
       </details>
 
-      <button id="runSimulation" class="primary">Run Simulation</button>
+      <button id="runSimulation" class="primary">Run Calculation</button>
       <p class="note">Changes auto-run with a short delay when possible.</p>
     </section>
 
     <section class="panel outputs">
       <h2>Outputs</h2>
+      <div class="summary-grid" id="requiredSavingsCard"></div>
+      <div id="infeasibleWarning" class="alert" hidden></div>
+
       <div class="summary-grid" id="summaryCards"></div>
 
       <div class="chart-card">

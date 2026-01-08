@@ -48,3 +48,10 @@ export const ASSUMPTIONS = [
   "Recovery profiles apply an expected-return premium that decays to zero.",
   "No brokerage fees, transaction costs, or dividend splits are modeled."
 ];
+
+export const TARGET_DEFAULTS = {
+  targetNetMonthly: 2500,
+  targetMode: "nominal",
+  payoutMode: "forever",
+  endAge: 100
+};
