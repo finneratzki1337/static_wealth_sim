@@ -1154,6 +1154,7 @@
   // ===== src/target.js =====
   const elements = {
     toggleTheme: document.getElementById("toggleTheme"),
+    transferToSimulator: document.getElementById("transferToSimulator"),
     targetNetMonthly: document.getElementById("targetNetMonthly"),
     targetMode: document.getElementById("targetMode"),
     payoutMode: document.getElementById("payoutMode"),
@@ -1162,7 +1163,6 @@
     annualReturnPre: document.getElementById("annualReturnPre"),
     annualReturnPost: document.getElementById("annualReturnPost"),
     inflationAnnual: document.getElementById("inflationAnnual"),
-    monthlySavings: document.getElementById("monthlySavings"),
     currentAge: document.getElementById("currentAge"),
     retirementAge: document.getElementById("retirementAge"),
     startGainPct: document.getElementById("startGainPct"),
@@ -1265,7 +1265,7 @@
         annualReturnPre: parseNumber(elements.annualReturnPre.value, 0) / 100,
         annualReturnPost: annualReturnPostRaw === null ? null : annualReturnPostRaw / 100,
         inflationAnnual: parseNumber(elements.inflationAnnual.value, 0) / 100,
-        monthlySavings: parseNumber(elements.monthlySavings.value, 0),
+        monthlySavings: DEFAULTS.monthlySavings,
         currentAge: parseNumber(elements.currentAge.value, 0),
         retirementAge: parseNumber(elements.retirementAge.value, 0),
         startUnrealizedGainPct: parseNumber(elements.startGainPct.value, 0),
@@ -1299,7 +1299,6 @@
     elements.annualReturnPre.value = values.annualReturnPre;
     elements.annualReturnPost.value = values.annualReturnPost ?? "";
     elements.inflationAnnual.value = values.inflationAnnual;
-    elements.monthlySavings.value = values.monthlySavings;
     elements.currentAge.value = values.currentAge;
     elements.retirementAge.value = values.retirementAge;
     elements.startGainPct.value = values.startGainPct;
@@ -1404,7 +1403,6 @@
       annualReturnPre: get("annualReturnPre") ?? DEFAULTS.annualReturnPre,
       annualReturnPost: get("annualReturnPost") ?? DEFAULTS.annualReturnPost,
       inflationAnnual: get("inflationAnnual") ?? DEFAULTS.inflationAnnual,
-      monthlySavings: get("monthlySavings") ?? DEFAULTS.monthlySavings,
       currentAge: get("currentAge") ?? DEFAULTS.currentAge,
       retirementAge: get("retirementAge") ?? DEFAULTS.retirementAge,
       startGainPct: get("startGainPct") ?? DEFAULTS.startGainPct,
@@ -1475,6 +1473,8 @@
     elements.infeasibleWarning.innerHTML = "";
   }
   let debounceTimer = null;
+  let lastRequiredSavings = null;
+  let lastRequiredSavingsFeasible = false;
   function runSimulation() {
     try {
       const scenario = getScenarioFromInputs();
@@ -1491,7 +1491,6 @@
         annualReturnPre: elements.annualReturnPre.value,
         annualReturnPost: elements.annualReturnPost.value,
         inflationAnnual: elements.inflationAnnual.value,
-        monthlySavings: elements.monthlySavings.value,
         currentAge: elements.currentAge.value,
         retirementAge: elements.retirementAge.value,
         startGainPct: elements.startGainPct.value,
@@ -1520,6 +1519,8 @@
         payoutMode: scenario.payoutMode,
         endAge: scenario.endAge
       });
+      lastRequiredSavings = searchResult.requiredSavings ?? null;
+      lastRequiredSavingsFeasible = Boolean(searchResult.feasible);
       renderRequiredSavingsCard(searchResult);
       renderInfeasibleWarning(searchResult);
       const simulationParams = {
@@ -1598,6 +1599,7 @@
       const scenario = getScenarioFromInputs();
       downloadJson({
         ...scenario.baseParams,
+        monthlySavings: lastRequiredSavingsFeasible && Number.isFinite(lastRequiredSavings) ? lastRequiredSavings : DEFAULTS.monthlySavings,
         targetNetMonthly: scenario.targetNetMonthly,
         targetMode: scenario.targetMode,
         payoutMode: scenario.payoutMode,
@@ -1623,7 +1625,6 @@
             annualReturnPre: toPercent(parsed.annualReturnPre, DEFAULTS.annualReturnPre),
             annualReturnPost: isFiniteNumber(parsed.annualReturnPost) ? parsed.annualReturnPost * 100 : "",
             inflationAnnual: toPercent(parsed.inflationAnnual, DEFAULTS.inflationAnnual),
-            monthlySavings: isFiniteNumber(parsed.monthlySavings) ? parsed.monthlySavings : DEFAULTS.monthlySavings,
             currentAge: isFiniteNumber(parsed.currentAge) ? parsed.currentAge : DEFAULTS.currentAge,
             retirementAge: isFiniteNumber(parsed.retirementAge) ? parsed.retirementAge : DEFAULTS.retirementAge,
             startGainPct: isFiniteNumber(parsed.startUnrealizedGainPct) ? parsed.startUnrealizedGainPct : DEFAULTS.startGainPct,
@@ -1652,6 +1653,43 @@
       elements.annualReturnPre.value = 8.5;
       runSimulation();
     });
+
+    if (elements.transferToSimulator) {
+      elements.transferToSimulator.addEventListener("click", () => {
+        const monthlySavingsForSimulator = lastRequiredSavingsFeasible && Number.isFinite(lastRequiredSavings)
+          ? lastRequiredSavings
+          : DEFAULTS.monthlySavings;
+        const params = serializeScenario({
+          targetNetMonthly: elements.targetNetMonthly.value,
+          targetMode: elements.targetMode.value,
+          payoutMode: elements.payoutMode.value,
+          endAge: elements.endAge.value,
+          startCapital: elements.startCapital.value,
+          annualReturnPre: elements.annualReturnPre.value,
+          annualReturnPost: elements.annualReturnPost.value,
+          inflationAnnual: elements.inflationAnnual.value,
+          monthlySavings: monthlySavingsForSimulator,
+          currentAge: elements.currentAge.value,
+          retirementAge: elements.retirementAge.value,
+          startGainPct: elements.startGainPct.value,
+          taxRate: elements.taxRate.value,
+          savingsIncreaseAnnualPct: elements.savingsIncreaseAnnualPct.value,
+          savingsCap: elements.savingsCap.value,
+          stopInvestingAfterYears: elements.stopInvestingAfterYears.value,
+          mcEnabled: elements.mcEnabled.checked,
+          mcRuns: elements.mcRuns.value,
+          sigmaAnnual: elements.sigmaAnnual.value,
+          crisisEnabled: elements.crisisEnabled.checked,
+          crisisAfterYears: elements.crisisAfterYears.value,
+          crisisMaxDrawdown: elements.crisisMaxDrawdown.value,
+          recoveryProfile: elements.recoveryProfile.value
+        });
+
+        const url = new URL("index.html", window.location.href);
+        url.search = params.toString();
+        window.open(url.toString(), "_blank", "noopener,noreferrer");
+      });
+    }
     if (elements.toggleTheme) {
       elements.toggleTheme.addEventListener("click", () => {
         const effective = document.documentElement.getAttribute("data-theme") ?? readThemePreference() ?? getSystemTheme();

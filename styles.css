@@ -118,6 +118,11 @@ body::before {
   flex-wrap: wrap;
 }
 
+.header-actions .primary {
+  width: auto;
+  margin-top: 0;
+}
+
 .nav-link {
   text-decoration: none;
   display: inline-flex;
@@ -144,9 +149,13 @@ h1, h2, h3 {
   text-transform: uppercase;
 }
 
+.inputs,
+.outputs {
+  max-height: calc(100dvh - 150px);
+  overflow: auto;
+}
+
 .inputs {
-  position: sticky;
-  top: 1.5rem;
   align-self: start;
 }
 
@@ -308,10 +317,75 @@ button:active,
 
 .table-scroll {
   overflow-x: auto;
-  max-height: 320px;
+  max-height: min(520px, 55dvh);
   border-radius: 8px;
   border: 1px solid var(--border);
   position: relative;
+}
+
+/* Improve readability in the MC percentiles table by alternating backgrounds per 3-column category group. */
+#mcYearlyTable table tbody td:nth-child(2),
+#mcYearlyTable table tbody td:nth-child(3),
+#mcYearlyTable table tbody td:nth-child(4),
+#mcYearlyTable table thead tr:nth-child(1) th:nth-child(2),
+#mcYearlyTable table thead tr:nth-child(1) th:nth-child(4),
+#mcYearlyTable table thead tr:nth-child(1) th:nth-child(6),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(1),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(2),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(3),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(7),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(8),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(9),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(13),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(14),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(15) {
+  background: var(--card-bg);
+}
+
+#mcYearlyTable table tbody td:nth-child(5),
+#mcYearlyTable table tbody td:nth-child(6),
+#mcYearlyTable table tbody td:nth-child(7),
+#mcYearlyTable table tbody td:nth-child(8),
+#mcYearlyTable table tbody td:nth-child(9),
+#mcYearlyTable table tbody td:nth-child(10),
+#mcYearlyTable table tbody td:nth-child(11),
+#mcYearlyTable table tbody td:nth-child(12),
+#mcYearlyTable table tbody td:nth-child(13),
+#mcYearlyTable table tbody td:nth-child(14),
+#mcYearlyTable table tbody td:nth-child(15),
+#mcYearlyTable table tbody td:nth-child(16),
+#mcYearlyTable table thead tr:nth-child(1) th:nth-child(3),
+#mcYearlyTable table thead tr:nth-child(1) th:nth-child(5),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(4),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(5),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(6),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(10),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(11),
+#mcYearlyTable table thead tr:nth-child(2) th:nth-child(12) {
+  background: var(--ghost-bg);
+}
+
+/* Year-by-year table: alternate vertical bands by metric category. */
+#yearlyTable table thead th:nth-child(2),
+#yearlyTable table thead th:nth-child(3),
+#yearlyTable table tbody td:nth-child(2),
+#yearlyTable table tbody td:nth-child(3),
+#yearlyTable table thead th:nth-child(5),
+#yearlyTable table thead th:nth-child(6),
+#yearlyTable table tbody td:nth-child(5),
+#yearlyTable table tbody td:nth-child(6),
+#yearlyTable table thead th:nth-child(9),
+#yearlyTable table tbody td:nth-child(9) {
+  background: var(--card-bg);
+}
+
+#yearlyTable table thead th:nth-child(4),
+#yearlyTable table tbody td:nth-child(4),
+#yearlyTable table thead th:nth-child(7),
+#yearlyTable table thead th:nth-child(8),
+#yearlyTable table tbody td:nth-child(7),
+#yearlyTable table tbody td:nth-child(8) {
+  background: var(--ghost-bg);
 }
 
 table {
@@ -330,6 +404,20 @@ thead th {
   z-index: 2;
   background: var(--table-head-bg);
   border-bottom: 2px solid var(--border);
+}
+
+/* Sticky first column for all tables (works inside scroll containers). */
+table th:first-child,
+table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel);
+}
+
+thead th:first-child {
+  z-index: 4;
+  background: var(--table-head-bg);
 }
 
 thead tr:first-child th {
@@ -370,5 +458,11 @@ footer {
   }
   .inputs {
     position: static;
+  }
+
+  .inputs,
+  .outputs {
+    max-height: none;
+    overflow: visible;
   }
 }

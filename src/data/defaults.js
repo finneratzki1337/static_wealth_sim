@@ -13,6 +13,7 @@ export const DEFAULTS = {
   stopInvestingAfterYears: "",
   withdrawalMode: "off",
   targetNetWithdrawal: 1500,
+  payoutEndAge: 95,
   mcEnabled: false,
   mcRuns: 100,
   sigmaAnnual: 15,

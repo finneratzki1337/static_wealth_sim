@@ -14,6 +14,7 @@ import { computeTargetNominal, findRequiredSavings } from "./target/logic.js";
 
 const elements = {
   toggleTheme: document.getElementById("toggleTheme"),
+  transferToSimulator: document.getElementById("transferToSimulator"),
   targetNetMonthly: document.getElementById("targetNetMonthly"),
   targetMode: document.getElementById("targetMode"),
   payoutMode: document.getElementById("payoutMode"),
@@ -22,7 +23,6 @@ const elements = {
   annualReturnPre: document.getElementById("annualReturnPre"),
   annualReturnPost: document.getElementById("annualReturnPost"),
   inflationAnnual: document.getElementById("inflationAnnual"),
-  monthlySavings: document.getElementById("monthlySavings"),
   currentAge: document.getElementById("currentAge"),
   retirementAge: document.getElementById("retirementAge"),
   startGainPct: document.getElementById("startGainPct"),
@@ -122,6 +122,26 @@ function parseOptionalNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function setControlVisible(control, visible) {
+  if (!control) return;
+  const host = control.closest("label") ?? control;
+  host.style.display = visible ? "" : "none";
+}
+
+function updateVisibility() {
+  const payoutMode = elements.payoutMode?.value ?? TARGET_DEFAULTS.payoutMode;
+  setControlVisible(elements.endAge, payoutMode === "untilAge");
+
+  const mcOn = Boolean(elements.mcEnabled?.checked);
+  setControlVisible(elements.mcRuns, mcOn);
+  setControlVisible(elements.sigmaAnnual, mcOn);
+
+  const crisisOn = Boolean(elements.crisisEnabled?.checked);
+  setControlVisible(elements.crisisAfterYears, crisisOn);
+  setControlVisible(elements.crisisMaxDrawdown, crisisOn);
+  setControlVisible(elements.recoveryProfile, crisisOn);
+}
+
 function getScenarioFromInputs() {
   const annualReturnPostRaw = parseOptionalNumber(elements.annualReturnPost.value);
   return {
@@ -136,7 +156,7 @@ function getScenarioFromInputs() {
         ? null
         : annualReturnPostRaw / 100,
       inflationAnnual: parseNumber(elements.inflationAnnual.value, 0) / 100,
-      monthlySavings: parseNumber(elements.monthlySavings.value, 0),
+      monthlySavings: DEFAULTS.monthlySavings,
       currentAge: parseNumber(elements.currentAge.value, 0),
       retirementAge: parseNumber(elements.retirementAge.value, 0),
       startUnrealizedGainPct: parseNumber(elements.startGainPct.value, 0),
@@ -171,7 +191,6 @@ function applyScenarioToInputs(values) {
   elements.annualReturnPre.value = values.annualReturnPre;
   elements.annualReturnPost.value = values.annualReturnPost ?? "";
   elements.inflationAnnual.value = values.inflationAnnual;
-  elements.monthlySavings.value = values.monthlySavings;
   elements.currentAge.value = values.currentAge;
   elements.retirementAge.value = values.retirementAge;
   elements.startGainPct.value = values.startGainPct;
@@ -282,7 +301,6 @@ function readScenarioFromUrl() {
     annualReturnPre: get("annualReturnPre") ?? DEFAULTS.annualReturnPre,
     annualReturnPost: get("annualReturnPost") ?? DEFAULTS.annualReturnPost,
     inflationAnnual: get("inflationAnnual") ?? DEFAULTS.inflationAnnual,
-    monthlySavings: get("monthlySavings") ?? DEFAULTS.monthlySavings,
     currentAge: get("currentAge") ?? DEFAULTS.currentAge,
     retirementAge: get("retirementAge") ?? DEFAULTS.retirementAge,
     startGainPct: get("startGainPct") ?? DEFAULTS.startGainPct,
@@ -359,6 +377,8 @@ function renderInfeasibleWarning(result) {
 }
 
 let debounceTimer = null;
+let lastRequiredSavings = null;
+let lastRequiredSavingsFeasible = false;
 
 function runSimulation() {
   try {
@@ -376,7 +396,6 @@ function runSimulation() {
       annualReturnPre: elements.annualReturnPre.value,
       annualReturnPost: elements.annualReturnPost.value,
       inflationAnnual: elements.inflationAnnual.value,
-      monthlySavings: elements.monthlySavings.value,
       currentAge: elements.currentAge.value,
       retirementAge: elements.retirementAge.value,
       startGainPct: elements.startGainPct.value,
@@ -407,6 +426,9 @@ function runSimulation() {
       payoutMode: scenario.payoutMode,
       endAge: scenario.endAge
     });
+
+    lastRequiredSavings = searchResult.requiredSavings ?? null;
+    lastRequiredSavingsFeasible = Boolean(searchResult.feasible);
 
     renderRequiredSavingsCard(searchResult);
     renderInfeasibleWarning(searchResult);
@@ -471,8 +493,14 @@ function setDefaults() {
 function initEventHandlers() {
   Object.values(elements).forEach((el) => {
     if (!el || el.tagName === "BUTTON" || el.type === "file") return;
-    el.addEventListener("input", scheduleSimulation);
-    el.addEventListener("change", scheduleSimulation);
+    el.addEventListener("input", () => {
+      updateVisibility();
+      scheduleSimulation();
+    });
+    el.addEventListener("change", () => {
+      updateVisibility();
+      scheduleSimulation();
+    });
   });
 
   elements.runSimulation.addEventListener("click", runSimulation);
@@ -498,6 +526,9 @@ function initEventHandlers() {
     const scenario = getScenarioFromInputs();
     downloadJson({
       ...scenario.baseParams,
+      monthlySavings: lastRequiredSavingsFeasible && Number.isFinite(lastRequiredSavings)
+        ? lastRequiredSavings
+        : DEFAULTS.monthlySavings,
       targetNetMonthly: scenario.targetNetMonthly,
       targetMode: scenario.targetMode,
       payoutMode: scenario.payoutMode,
@@ -525,7 +556,6 @@ function initEventHandlers() {
           annualReturnPre: toPercent(parsed.annualReturnPre, DEFAULTS.annualReturnPre),
           annualReturnPost: isFiniteNumber(parsed.annualReturnPost) ? parsed.annualReturnPost * 100 : "",
           inflationAnnual: toPercent(parsed.inflationAnnual, DEFAULTS.inflationAnnual),
-          monthlySavings: isFiniteNumber(parsed.monthlySavings) ? parsed.monthlySavings : DEFAULTS.monthlySavings,
           currentAge: isFiniteNumber(parsed.currentAge) ? parsed.currentAge : DEFAULTS.currentAge,
           retirementAge: isFiniteNumber(parsed.retirementAge) ? parsed.retirementAge : DEFAULTS.retirementAge,
           startGainPct: isFiniteNumber(parsed.startUnrealizedGainPct)
@@ -564,6 +594,43 @@ function initEventHandlers() {
     runSimulation();
   });
 
+  if (elements.transferToSimulator) {
+    elements.transferToSimulator.addEventListener("click", () => {
+      const monthlySavingsForSimulator = lastRequiredSavingsFeasible && Number.isFinite(lastRequiredSavings)
+        ? lastRequiredSavings
+        : DEFAULTS.monthlySavings;
+      const params = serializeScenario({
+        targetNetMonthly: elements.targetNetMonthly.value,
+        targetMode: elements.targetMode.value,
+        payoutMode: elements.payoutMode.value,
+        endAge: elements.endAge.value,
+        startCapital: elements.startCapital.value,
+        annualReturnPre: elements.annualReturnPre.value,
+        annualReturnPost: elements.annualReturnPost.value,
+        inflationAnnual: elements.inflationAnnual.value,
+        monthlySavings: monthlySavingsForSimulator,
+        currentAge: elements.currentAge.value,
+        retirementAge: elements.retirementAge.value,
+        startGainPct: elements.startGainPct.value,
+        taxRate: elements.taxRate.value,
+        savingsIncreaseAnnualPct: elements.savingsIncreaseAnnualPct.value,
+        savingsCap: elements.savingsCap.value,
+        stopInvestingAfterYears: elements.stopInvestingAfterYears.value,
+        mcEnabled: elements.mcEnabled.checked,
+        mcRuns: elements.mcRuns.value,
+        sigmaAnnual: elements.sigmaAnnual.value,
+        crisisEnabled: elements.crisisEnabled.checked,
+        crisisAfterYears: elements.crisisAfterYears.value,
+        crisisMaxDrawdown: elements.crisisMaxDrawdown.value,
+        recoveryProfile: elements.recoveryProfile.value
+      });
+
+      const url = new URL("index.html", window.location.href);
+      url.search = params.toString();
+      window.open(url.toString(), "_blank", "noopener,noreferrer");
+    });
+  }
+
   if (elements.toggleTheme) {
     elements.toggleTheme.addEventListener("click", () => {
       const effective = document.documentElement.getAttribute("data-theme") ?? readThemePreference() ?? getSystemTheme();
@@ -583,6 +650,7 @@ function init() {
   } else {
     setDefaults();
   }
+  updateVisibility();
   renderAssumptions();
   initEventHandlers();
 

@@ -20,7 +20,8 @@
       </div>
     </div>
     <div class="header-actions">
-      <a class="ghost nav-link" href="target_income.html">Target Income Calculator</a>
+      <a class="primary nav-link" href="target_income.html">Target Income Calculator</a>
+      <button id="transferToTarget" class="primary" type="button">Transfer parameters</button>
       <button id="toggleTheme" class="ghost" type="button">Dark mode</button>
       <button id="msciDefaults" class="ghost">Use MSCI World-like defaults</button>
       <button id="copyLink" class="ghost">Copy Scenario Link</button>
@@ -38,46 +39,49 @@
       <h2>Inputs</h2>
       <div id="validationErrors" class="alert" hidden></div>
 
-      <div class="field-grid">
-        <label>
-          Starting capital
-          <input id="startCapital" type="number" min="0" step="100" />
-        </label>
-        <label>
-          Assumed annual return (nominal %)
-          <input id="annualReturnPre" type="number" step="0.1" />
-        </label>
-        <label>
-          Inflation (annual %)
-          <input id="inflationAnnual" type="number" step="0.1" />
-        </label>
-        <label>
-          Monthly savings rate
-          <input id="monthlySavings" type="number" min="0" step="50" />
-        </label>
-        <label>
-          Current age (years)
-          <input id="currentAge" type="number" min="0" step="1" />
-        </label>
-        <label>
-          Desired retirement age
-          <input id="retirementAge" type="number" min="0" step="1" />
-        </label>
-        <label>
-          % of starting capital unrealized gain
-          <input id="startGainPct" type="number" min="0" max="100" step="1" />
-        </label>
-        <label>
-          Flat tax on gain (% of gains)
-          <input id="taxRate" type="number" min="0" max="100" step="0.1" />
-        </label>
-        <label>
-          Annual return after retirement (optional %)
-          <input id="annualReturnPost" type="number" step="0.1" placeholder="same as pre-retirement" />
-        </label>
-      </div>
+      <details>
+        <summary>Core inputs</summary>
+        <div class="field-grid">
+          <label>
+            Starting capital
+            <input id="startCapital" type="number" min="0" step="100" />
+          </label>
+          <label>
+            Assumed annual return (nominal %)
+            <input id="annualReturnPre" type="number" step="0.1" />
+          </label>
+          <label>
+            Inflation (annual %)
+            <input id="inflationAnnual" type="number" step="0.1" />
+          </label>
+          <label>
+            Monthly savings rate
+            <input id="monthlySavings" type="number" min="0" step="50" />
+          </label>
+          <label>
+            Current age (years)
+            <input id="currentAge" type="number" min="0" step="1" />
+          </label>
+          <label>
+            Desired retirement age
+            <input id="retirementAge" type="number" min="0" step="1" />
+          </label>
+          <label>
+            % of starting capital unrealized gain
+            <input id="startGainPct" type="number" min="0" max="100" step="1" />
+          </label>
+          <label>
+            Flat tax on gain (% of gains)
+            <input id="taxRate" type="number" min="0" max="100" step="0.1" />
+          </label>
+          <label>
+            Annual return after retirement (optional %)
+            <input id="annualReturnPost" type="number" step="0.1" placeholder="same as pre-retirement" />
+          </label>
+        </div>
+      </details>
 
-      <details open>
+      <details>
         <summary>Advanced savings</summary>
         <div class="field-grid">
           <label>
@@ -95,7 +99,7 @@
         </div>
       </details>
 
-      <details open>
+      <details>
         <summary>Retirement withdrawals</summary>
         <div class="field-grid">
           <label>
@@ -104,16 +108,21 @@
               <option value="off">Off</option>
               <option value="targetNet">Target net monthly payout</option>
               <option value="interestOnly">Interest-only (forever payout)</option>
+              <option value="depleteUntilAge">Pay out everything until age</option>
             </select>
           </label>
           <label>
             Target net monthly payout
             <input id="targetNetWithdrawal" type="number" min="0" step="50" />
           </label>
+          <label>
+            End age (pay out everything)
+            <input id="payoutEndAge" type="number" min="0" step="1" />
+          </label>
         </div>
       </details>
 
-      <details open>
+      <details>
         <summary>Monte Carlo</summary>
         <div class="field-grid">
           <label class="toggle">
@@ -131,7 +140,7 @@
         </div>
       </details>
 
-      <details open>
+      <details>
         <summary>Crisis drawdown + recovery</summary>
         <div class="field-grid">
           <label class="toggle">
@@ -167,35 +176,35 @@
       <h2>Outputs</h2>
       <div class="summary-grid" id="summaryCards"></div>
 
-      <div class="chart-card">
-        <h3>Deterministic projection</h3>
+      <details class="chart-card">
+        <summary>Deterministic projection</summary>
         <div id="deterministicChart" class="chart"></div>
-      </div>
+      </details>
 
-      <div class="chart-card" id="mcSection">
-        <h3>Monte Carlo projection</h3>
+      <details class="chart-card" id="mcSection">
+        <summary>Monte Carlo projection</summary>
         <div id="mcChart" class="chart"></div>
-      </div>
+      </details>
 
-      <div class="table-card" id="mcTableCard">
-        <h3>Monte Carlo summary</h3>
+      <details class="table-card" id="mcTableCard">
+        <summary>Monte Carlo summary</summary>
         <div id="mcSummaryTable"></div>
-      </div>
+      </details>
 
-      <div class="table-card" id="mcYearlyTableCard">
-        <h3>Monte Carlo year-by-year (percentiles)</h3>
+      <details class="table-card" id="mcYearlyTableCard">
+        <summary>Monte Carlo year-by-year (percentiles)</summary>
         <div class="table-scroll" id="mcYearlyTable"></div>
-      </div>
+      </details>
 
-      <div class="table-card">
-        <h3>Summary table</h3>
+      <details class="table-card">
+        <summary>Summary table</summary>
         <div id="summaryTable"></div>
-      </div>
+      </details>
 
-      <div class="table-card">
-        <h3>Year-by-year table</h3>
+      <details class="table-card">
+        <summary>Year-by-year table</summary>
         <div class="table-scroll" id="yearlyTable"></div>
-      </div>
+      </details>
     </section>
   </main>
 

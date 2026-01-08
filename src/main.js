@@ -12,6 +12,7 @@ import {
 
 const elements = {
   toggleTheme: document.getElementById("toggleTheme"),
+  transferToTarget: document.getElementById("transferToTarget"),
   startCapital: document.getElementById("startCapital"),
   annualReturnPre: document.getElementById("annualReturnPre"),
   annualReturnPost: document.getElementById("annualReturnPost"),
@@ -26,6 +27,7 @@ const elements = {
   stopInvestingAfterYears: document.getElementById("stopInvestingAfterYears"),
   withdrawalMode: document.getElementById("withdrawalMode"),
   targetNetWithdrawal: document.getElementById("targetNetWithdrawal"),
+  payoutEndAge: document.getElementById("payoutEndAge"),
   mcEnabled: document.getElementById("mcEnabled"),
   mcRuns: document.getElementById("mcRuns"),
   sigmaAnnual: document.getElementById("sigmaAnnual"),
@@ -116,8 +118,105 @@ function parseOptionalNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function setControlVisible(control, visible) {
+  if (!control) return;
+  const host = control.closest("label") ?? control;
+  host.style.display = visible ? "" : "none";
+}
+
+function updateVisibility() {
+  const mode = elements.withdrawalMode?.value ?? "off";
+  setControlVisible(elements.targetNetWithdrawal, mode === "targetNet");
+  setControlVisible(elements.payoutEndAge, mode === "depleteUntilAge");
+
+  const mcOn = Boolean(elements.mcEnabled?.checked);
+  setControlVisible(elements.mcRuns, mcOn);
+  setControlVisible(elements.sigmaAnnual, mcOn);
+
+  const crisisOn = Boolean(elements.crisisEnabled?.checked);
+  setControlVisible(elements.crisisAfterYears, crisisOn);
+  setControlVisible(elements.crisisMaxDrawdown, crisisOn);
+  setControlVisible(elements.recoveryProfile, crisisOn);
+}
+
+function buildScenarioForSimulation(inputScenario) {
+  if (inputScenario.withdrawalMode !== "depleteUntilAge") return inputScenario;
+
+  const endAge = inputScenario.payoutEndAge;
+  const baseScenario = {
+    ...inputScenario,
+    // Convert UI mode into core sim mode.
+    withdrawalMode: "targetNet",
+    targetNetWithdrawal: 0,
+    maxAge: endAge,
+    monteCarlo: {
+      ...inputScenario.monteCarlo,
+      enabled: false
+    }
+  };
+
+  const monthsInRetirement = Math.max(0, Math.round((endAge - inputScenario.retirementAge) * 12));
+  if (monthsInRetirement <= 0) {
+    return {
+      ...inputScenario,
+      withdrawalMode: "off",
+      targetNetWithdrawal: 0,
+      maxAge: endAge,
+      monteCarlo: {
+        ...inputScenario.monteCarlo,
+        enabled: false
+      }
+    };
+  }
+
+  const isDepletedAtEnd = (scenario) => {
+    const results = simulateScenario(scenario);
+    const timeline = results.deterministic.timeline;
+    const last = timeline[timeline.length - 1];
+    return Boolean(last?.isDepleted);
+  };
+
+  // Find the smallest net monthly withdrawal that depletes the portfolio by endAge.
+  let low = 0;
+  let high = 1000;
+  let guard = 0;
+  while (guard < 40 && !isDepletedAtEnd({ ...baseScenario, targetNetWithdrawal: high })) {
+    high *= 2;
+    guard += 1;
+    if (high > 1e9) break;
+  }
+
+  // If even a huge withdrawal doesn't deplete (edge case), just fall back to zero.
+  if (!isDepletedAtEnd({ ...baseScenario, targetNetWithdrawal: high })) {
+    return {
+      ...inputScenario,
+      withdrawalMode: "targetNet",
+      targetNetWithdrawal: 0,
+      maxAge: endAge
+    };
+  }
+
+  for (let i = 0; i < 30 && high - low > 1; i += 1) {
+    const mid = (low + high) / 2;
+    if (isDepletedAtEnd({ ...baseScenario, targetNetWithdrawal: mid })) {
+      high = mid;
+    } else {
+      low = mid;
+    }
+  }
+
+  return {
+    ...inputScenario,
+    withdrawalMode: "targetNet",
+    targetNetWithdrawal: high,
+    maxAge: endAge
+  };
+}
+
 function getScenarioFromInputs() {
   const annualReturnPostRaw = parseOptionalNumber(elements.annualReturnPost.value);
+  const withdrawalMode = elements.withdrawalMode.value;
+  const payoutEndAge = parseNumber(elements.payoutEndAge?.value, DEFAULTS.payoutEndAge);
   return {
     startCapital: parseNumber(elements.startCapital.value, 0),
     annualReturnPre: parseNumber(elements.annualReturnPre.value, 0) / 100,
@@ -133,8 +232,9 @@ function getScenarioFromInputs() {
     savingsIncreaseAnnualPct: parseNumber(elements.savingsIncreaseAnnualPct.value, 0),
     savingsCap: parseOptionalNumber(elements.savingsCap.value),
     stopInvestingAfterYears: parseOptionalNumber(elements.stopInvestingAfterYears.value),
-    withdrawalMode: elements.withdrawalMode.value,
+    withdrawalMode,
     targetNetWithdrawal: parseNumber(elements.targetNetWithdrawal.value, 0),
+    payoutEndAge,
     monteCarlo: {
       enabled: elements.mcEnabled.checked,
       runs: parseNumber(elements.mcRuns.value, DEFAULTS.mcRuns),
@@ -165,6 +265,7 @@ function applyScenarioToInputs(values) {
   elements.stopInvestingAfterYears.value = values.stopInvestingAfterYears;
   elements.withdrawalMode.value = values.withdrawalMode;
   elements.targetNetWithdrawal.value = values.targetNetWithdrawal;
+  if (elements.payoutEndAge) elements.payoutEndAge.value = values.payoutEndAge ?? DEFAULTS.payoutEndAge;
   elements.mcEnabled.checked = values.mcEnabled;
   elements.mcRuns.value = values.mcRuns;
   elements.sigmaAnnual.value = values.sigmaAnnual;
@@ -206,6 +307,16 @@ function validateScenario(params) {
 
   if (params.withdrawalMode === "targetNet" && params.targetNetWithdrawal < 0) {
     errors.push("Target net withdrawal must be zero or greater.");
+  }
+
+  if (params.withdrawalMode === "depleteUntilAge") {
+    if (!isFiniteNumber(params.payoutEndAge)) {
+      errors.push("End age must be a valid number.");
+    } else if (params.payoutEndAge < params.retirementAge) {
+      errors.push("End age must be greater than or equal to retirement age.");
+    } else if (params.payoutEndAge <= params.currentAge) {
+      errors.push("End age must be greater than current age.");
+    }
   }
 
   return { errors, warnings };
@@ -268,6 +379,7 @@ function readScenarioFromUrl() {
     stopInvestingAfterYears: get("stopInvestingAfterYears") ?? DEFAULTS.stopInvestingAfterYears,
     withdrawalMode: get("withdrawalMode") ?? DEFAULTS.withdrawalMode,
     targetNetWithdrawal: get("targetNetWithdrawal") ?? DEFAULTS.targetNetWithdrawal,
+    payoutEndAge: get("payoutEndAge") ?? DEFAULTS.payoutEndAge,
     mcEnabled: getBool("mcEnabled", DEFAULTS.mcEnabled),
     mcRuns: get("mcRuns") ?? DEFAULTS.mcRuns,
     sigmaAnnual: get("sigmaAnnual") ?? DEFAULTS.sigmaAnnual,
@@ -316,6 +428,7 @@ let debounceTimer = null;
 
 function runSimulation() {
   try {
+    updateVisibility();
     const scenario = getScenarioFromInputs();
     const validation = validateScenario(scenario);
     renderValidation(validation);
@@ -336,6 +449,7 @@ function runSimulation() {
       stopInvestingAfterYears: elements.stopInvestingAfterYears.value,
       withdrawalMode: elements.withdrawalMode.value,
       targetNetWithdrawal: elements.targetNetWithdrawal.value,
+      payoutEndAge: elements.payoutEndAge?.value ?? DEFAULTS.payoutEndAge,
       mcEnabled: elements.mcEnabled.checked,
       mcRuns: elements.mcRuns.value,
       sigmaAnnual: elements.sigmaAnnual.value,
@@ -352,7 +466,8 @@ function runSimulation() {
       );
     }
 
-    const results = simulateScenario(scenario);
+    const simulationScenario = buildScenarioForSimulation(scenario);
+    const results = simulateScenario(simulationScenario);
 
     renderSummaryCards(elements.summaryCards, results.deterministic.summary, results.monteCarlo?.summaryQuantiles);
     renderSummaryTable(elements.summaryTable, results.deterministic.summary);
@@ -393,8 +508,14 @@ function setDefaults() {
 function initEventHandlers() {
   Object.values(elements).forEach((el) => {
     if (!el || el.tagName === "BUTTON" || el.type === "file") return;
-    el.addEventListener("input", scheduleSimulation);
-    el.addEventListener("change", scheduleSimulation);
+    el.addEventListener("input", () => {
+      updateVisibility();
+      scheduleSimulation();
+    });
+    el.addEventListener("change", () => {
+      updateVisibility();
+      scheduleSimulation();
+    });
   });
 
   elements.runSimulation.addEventListener("click", runSimulation);
@@ -474,6 +595,38 @@ function initEventHandlers() {
     runSimulation();
   });
 
+  if (elements.transferToTarget) {
+    elements.transferToTarget.addEventListener("click", () => {
+      const params = serializeScenario({
+        startCapital: elements.startCapital.value,
+        annualReturnPre: elements.annualReturnPre.value,
+        annualReturnPost: elements.annualReturnPost.value,
+        inflationAnnual: elements.inflationAnnual.value,
+        monthlySavings: elements.monthlySavings.value,
+        currentAge: elements.currentAge.value,
+        retirementAge: elements.retirementAge.value,
+        startGainPct: elements.startGainPct.value,
+        taxRate: elements.taxRate.value,
+        savingsIncreaseAnnualPct: elements.savingsIncreaseAnnualPct.value,
+        savingsCap: elements.savingsCap.value,
+        stopInvestingAfterYears: elements.stopInvestingAfterYears.value,
+        withdrawalMode: elements.withdrawalMode.value,
+        targetNetWithdrawal: elements.targetNetWithdrawal.value,
+        mcEnabled: elements.mcEnabled.checked,
+        mcRuns: elements.mcRuns.value,
+        sigmaAnnual: elements.sigmaAnnual.value,
+        crisisEnabled: elements.crisisEnabled.checked,
+        crisisAfterYears: elements.crisisAfterYears.value,
+        crisisMaxDrawdown: elements.crisisMaxDrawdown.value,
+        recoveryProfile: elements.recoveryProfile.value
+      });
+
+      const url = new URL("target_income.html", window.location.href);
+      url.search = params.toString();
+      window.open(url.toString(), "_blank", "noopener,noreferrer");
+    });
+  }
+
   if (elements.toggleTheme) {
     elements.toggleTheme.addEventListener("click", () => {
       const effective = document.documentElement.getAttribute("data-theme") ?? readThemePreference() ?? getSystemTheme();
@@ -493,6 +646,7 @@ function init() {
   } else {
     setDefaults();
   }
+  updateVisibility();
   renderAssumptions();
   initEventHandlers();
 
