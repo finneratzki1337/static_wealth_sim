@@ -251,7 +251,7 @@ export function renderMonteCarloChart(container, quantilesTimeline, timeline, sh
   Plotly.newPlot(container, traces, layout, { responsive: true });
 }
 
-export function renderSummaryCards(container, summary, monteCarloSummary, showReal) {
+export function renderSummaryCards(container, summary, monteCarloSummary) {
   container.innerHTML = "";
   const cards = [
     {
