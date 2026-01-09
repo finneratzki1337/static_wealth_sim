@@ -1624,7 +1624,26 @@
 
     if (elements.transferToTarget) {
       elements.transferToTarget.addEventListener("click", () => {
+        let targetNetMonthlyReal = null;
+        try {
+          const scenario = getScenarioFromInputs();
+          const validation = validateScenario(scenario);
+          if (validation.errors.length === 0) {
+            const simulationScenario = buildScenarioForSimulation(scenario);
+            const results = simulateScenario(simulationScenario);
+            const foreverReal = results?.deterministic?.summary?.foreverNetMonthlyReal;
+            if (isFiniteNumber(foreverReal) && foreverReal >= 0) {
+              targetNetMonthlyReal = foreverReal;
+            }
+          }
+        } catch {
+          // Ignore transfer-time simulation failures; fall back to defaults on the target page.
+        }
+
         const params = serializeScenario({
+          targetNetMonthly: targetNetMonthlyReal !== null ? String(targetNetMonthlyReal) : "",
+          targetMode: "real",
+          payoutMode: "forever",
           startCapital: elements.startCapital.value,
           annualReturnPre: elements.annualReturnPre.value,
           annualReturnPost: elements.annualReturnPost.value,
